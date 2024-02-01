@@ -1,0 +1,156 @@
+pip install pyspark
+from google.colab import drive
+drive.mount('/content/drive')
+
+import pandas as pd
+import numpy as np
+import shutil
+import os
+
+url = 'https://drive.google.com/uc?id={}'.format('1iNAO74yw4PITYdeYIpXn2LbF_8N-PJqO')
+df = pd.read_csv(url)
+df
+#df = pd.read_csv(file_path+'/test.csv')
+df.dtypes
+import pyspark
+
+
+from pyspark.sql import SparkSession
+import pandas as pd
+# df=pd.read_csv("test.csv")
+spark=SparkSession.builder.appName('PDC').getOrCreate()
+
+spark
+
+#df=spark.read.option('header','true').csv('test.csv')
+# check if not /content/hotel_bookings.csv
+df.show()
+
+df.head(3)
+df.columns
+
+#null values
+df.fillna(value='NULL').show()
+
+
+col_name = df.columns
+
+null_counts = df.rdd.map(lambda row: tuple(row[col] is None for col in col_name)).reduce(lambda x, y: tuple(x[i]+y[i] for i in range(len(x))))
+null_counts
+
+df.show()
+
+import time
+
+# store starting time
+begin = time.time()
+
+#changing null values
+from pyspark.sql.functions import when
+
+df = spark.read.csv("test.csv", header=True)
+
+for col in df.columns:
+    df = df.withColumn(col, when(df[col].isNull(), 0).otherwise(df[col]))
+
+df.show(25)
+
+time.sleep(1)
+# store end time
+end = time.time()
+
+# total time taken
+print(f"Total runtime of the program is {end - begin}")
+
+
+from pyspark.sql.functions import col, mean, stddev, log
+from pyspark.sql.window import Window
+from pyspark.sql.types import IntegerType
+
+# Read the data from file
+df = spark.read.option("header", True).option("inferSchema", True).csv("test.csv")
+
+# Define the columns to remove outliers from
+cols = ['user_location_country', 'orig_destination_distance', 'user_location_city']
+
+# Calculate mean and standard deviation for each column
+stats = df.select(*(mean(col(c)).alias(c + '_mean') for c in cols),
+                   *(stddev(col(c)).alias(c + '_stddev') for c in cols)).collect()[0]
+
+# Calculate the lower and upper bounds for each column
+bounds = []
+for c in cols:
+    mean_val = stats[c + '_mean']
+    stddev_val = stats[c + '_stddev']
+    lower_bound = mean_val - 3 * stddev_val
+    upper_bound = mean_val + 3 * stddev_val
+    bounds.append((c, lower_bound, upper_bound))
+
+# Remove outliers from each column
+for c, lower, upper in bounds:
+    df = df.withColumn(c, col(c).cast(IntegerType()))
+    df = df.withColumn(c, when((col(c) >= lower) & (col(c) <= upper), col(c)).otherwise(None))
+
+# Count the number of rows before and after removing outliers
+count_before = df.count()
+df = df.na.drop()
+count_after = df.count()
+
+print(f"Number of rows before removing outliers: {count_before}")
+print(f"Number of rows after removing outliers: {count_after}")
+
+
+df.show()
+pip install --upgrade scipy
+
+from scipy.cluster import hierarchy
+df=df.withColumn("hotel_country",df.hotel_country.cast('int'))
+df=df.withColumn("hotel_market",df.hotel_market.cast('int'))
+x=df["hotel_country"]
+y=df["hotel_market"]
+
+df=df.withColumn("hotel_country",df.hotel_country.cast('int'))
+df=df.withColumn("hotel_market",df.hotel_market.cast('int'))
+x=df["hotel_country"]
+y=df["hotel_market"]
+
+from pyspark.ml.clustering import KMeans
+from pyspark.ml.evaluation import ClusteringEvaluator
+from pyspark.ml.feature import VectorAssembler
+from pyspark.sql import SparkSession
+
+assembler = VectorAssembler(inputCols=["hotel_country","hotel_market"], outputCol="features")
+df = assembler.transform(df).select("features")
+kmeans = KMeans().setK(3).setSeed(1)
+model = kmeans.fit(df)
+
+
+# Print the centers of the clusters
+centers = model.clusterCenters()
+print("Cluster Centers: ")
+for center in centers:
+    print(center)
+import matplotlib.pyplot as plt
+predictions = model.transform(df)
+
+
+# Plot the clusters
+centers = model.clusterCenters()
+plt.scatter(predictions.select("features").rdd.map(lambda x: x[0][0]).collect(),
+            predictions.select("features").rdd.map(lambda x: x[0][1]).collect(),
+            c=predictions.select("prediction").rdd.map(lambda x: x[0]).collect())
+plt.scatter([center[0] for center in centers], [center[1] for center in centers], marker='x', color='red', s=200)
+plt.show()
+
+from pyspark.ml.feature import StandardScaler
+# Define the columns to be standardized
+cols_to_scale = df.columns
+
+vector_assembler = VectorAssembler(inputCols=cols_to_scale, outputCol="std_features")
+data_vector = vector_assembler.transform(df)
+
+scaler = StandardScaler(inputCol="std_features", outputCol="scaled_std_features", withStd=True, withMean=False)
+scaler_model = scaler.fit(data_vector)
+
+scaled_data = scaler_model.transform(data_vector)
+scaled_data.show()
